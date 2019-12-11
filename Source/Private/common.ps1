@@ -593,12 +593,14 @@ function _callAPI {
       [object]$body,
       [string]$InFile,
       [string]$OutFile,
-      [string]$ContentType,      
+      [string]$ContentType,
       [string]$ProjectName,
       [string]$Team,
       [string]$Url,
       [object]$QueryString
    )
+
+   $continuationParameters = @{ } + $PSBoundParameters
 
    # If the caller did not provide a Url build it.
    if (-not $Url) {
@@ -638,14 +640,30 @@ function _callAPI {
    foreach ($e in $extra) { $params.Remove($e) | Out-Null }
 
    try {
-      $resp = Invoke-RestMethod @params
+      $resp = Invoke-WebRequest @params
+      $content = $resp.content | ConvertFrom-Json
 
-      if ($resp) {
-         Write-Verbose "return type: $($resp.gettype())"
-         Write-Verbose $resp
+      if( $resp.Headers['X-MS-ContinuationToken'] ) {
+         $newQueryString = $continuationParameters['QueryString']
+         if( -not $newQueryString ){
+            $newQueryString = @{}
+            $continuationParameters['QueryString'] = $newQueryString
+         }
+
+         $newQueryString['continuationToken'] = $resp.Headers['X-MS-ContinuationToken'];
+
+         $additionalContent = _callAPI @continuationParameters
+
+         $content.count += $additionalContent.count
+         $content.value += $additionalContent.value
       }
 
-      return $resp
+      if ($content) {
+         Write-Verbose "return type: $($content.gettype())"
+         Write-Verbose $content
+      }
+
+      return $content
    }
    catch {
       _handleException $_
